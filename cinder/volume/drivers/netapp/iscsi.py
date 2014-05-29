@@ -1181,9 +1181,8 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
     VERSION = "1.0.0"
 
     IGROUP_PREFIX = 'openstack-'
-    required_flags = ['netapp_transport_type', 'netapp_login',
-                      'netapp_password', 'netapp_server_hostname',
-                      'netapp_server_port']
+    required_flags = ['netapp_login', 'netapp_password',
+                      'netapp_server_hostname']
 
     def __init__(self, *args, **kwargs):
         self._app_version = kwargs.pop("app_version", "unknown")
@@ -1209,6 +1208,8 @@ class NetAppDirectISCSIDriver(driver.ISCSIDriver):
                                style=NaServer.STYLE_LOGIN_PASSWORD,
                                username=kwargs['login'],
                                password=kwargs['password'])
+        if kwargs['port'] is not None:
+            self.client.set_port(kwargs['port'])
 
     def _do_custom_setup(self):
         """Does custom setup depending on the type of filer."""

@@ -1,0 +1,16 @@
+The following patches are added by NetApp and not included in the upstream
+version of stable/icehouse:
+
+1. NetApp DFM iscsi driver for 7-mode
+
+2. Facilitate Migration from DFM 7-mode driver
+    - https://bugs.launchpad.net/cinder/+bug/1400832
+
+3. Ensure that lun_id is an int for NetApp Drivers
+    - https://bugs.launchpad.net/cinder/+bug/1372808
+
+4. NetApp fix vol migration unusability
+    - https://bugs.launchpad.net/cinder/+bug/1322379
+
+5. NetApp fix to set non default server port in api
+    - https://bugs.launchpad.net/cinder/+bug/1322379
