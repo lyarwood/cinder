@@ -108,8 +108,6 @@ MAPPING = {
     'cinder.volume.drivers.ibm.xiv_ds8k.XIVDS8KDriver',
     'cinder.volume.driver.ISCSIDriver':
     'cinder.volume.drivers.lvm.LVMISCSIDriver',
-    'cinder.volume.drivers.netapp.iscsi.NetAppISCSIDriver':
-    'cinder.volume.drivers.netapp.common.Deprecated',
     'cinder.volume.drivers.netapp.iscsi.NetAppCmodeISCSIDriver':
     'cinder.volume.drivers.netapp.common.Deprecated',
     'cinder.volume.drivers.netapp.nfs.NetAppNFSDriver':

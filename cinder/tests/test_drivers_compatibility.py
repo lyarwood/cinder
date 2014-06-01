@@ -109,11 +109,6 @@ class VolumeDriverCompatibility(test.TestCase):
         self._load_driver(XIV_DS8K_MODULE)
         self.assertEqual(self._driver_module_name(), XIV_DS8K_MODULE)
 
-    def test_netapp_7m_iscsi_old(self):
-        self._load_driver('cinder.volume.drivers.netapp.iscsi.'
-                          'NetAppISCSIDriver')
-        self.assertEqual(self._driver_module_name(), NETAPP_MODULE)
-
     def test_netapp_cm_iscsi_old(self):
         self._load_driver('cinder.volume.drivers.netapp.iscsi.'
                           'NetAppCmodeISCSIDriver')
