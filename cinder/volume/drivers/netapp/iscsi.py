@@ -856,8 +856,11 @@ class NetAppISCSIDriver(driver.ISCSIDriver):
         Unmask the LUN on the storage system so the given intiator can no
         longer access it.
         """
+        name = volume['name']
+        project = volume['project_id']
+        lun = self._lookup_lun_for_volume(name, project)
         initiator_name = connector['initiator']
-        lun_id = volume['provider_location']
+        lun_id = lun.id
         if not lun_id:
             msg = _('No LUN ID for volume %s') % volume['name']
             raise exception.VolumeBackendAPIException(data=msg)
