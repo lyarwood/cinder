@@ -97,6 +97,7 @@ class Driver(driver.ISCSIDriver):
                 port = 8080
             elif scheme == 'https':
                 port = 8443
+        self.context = context
         self._client = client.RestClient(
             scheme=scheme,
             host=self.configuration.netapp_server_hostname,
@@ -290,7 +291,8 @@ class Driver(driver.ISCSIDriver):
             if vol.get('label') == label:
                 self._cache_volume(vol)
                 return self._get_cached_volume(label)
-        raise exception.NetAppDriverException(_("Volume %s not found."), uid)
+        raise exception.NetAppDriverException(_("Volume %(uid)s not found.")
+                                              % {'uid': uid})
 
     def _get_cached_volume(self, label):
         vol_id = self._objects['volumes']['label_ref'][label]
@@ -321,9 +323,9 @@ class Driver(driver.ISCSIDriver):
 
     def create_volume(self, volume):
         """Creates a volume."""
-        label = utils.convert_uuid_to_es_fmt(volume['id'])
+        eseries_volume_label = utils.convert_uuid_to_es_fmt(volume['name_id'])
         size_gb = int(volume['size'])
-        vol = self._create_volume(label, size_gb)
+        vol = self._create_volume(eseries_volume_label, size_gb)
         self._cache_volume(vol)
 
     def _create_volume(self, label, size_gb):
@@ -441,7 +443,7 @@ class Driver(driver.ISCSIDriver):
     def delete_volume(self, volume):
         """Deletes a volume."""
         try:
-            vol = self._get_volume(volume['id'])
+            vol = self._get_volume(volume['name_id'])
             self._delete_volume(vol['label'])
         except KeyError:
             LOG.info(_("Volume %s already deleted."), volume['id'])
@@ -458,7 +460,8 @@ class Driver(driver.ISCSIDriver):
         """Creates a snapshot."""
         snap_grp, snap_image = None, None
         snapshot_name = utils.convert_uuid_to_es_fmt(snapshot['id'])
-        vol = self._get_volume(snapshot['volume_id'])
+        os_vol = self.db.volume_get(self.context, snapshot['volume_id'])
+        vol = self._get_volume(os_vol['name_id'])
         vol_size_gb = int(vol['totalSizeInBytes']) / units.GiB
         pools = self._get_sorted_avl_storage_pools(vol_size_gb)
         try:
@@ -500,7 +503,7 @@ class Driver(driver.ISCSIDriver):
     def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
         initiator_name = connector['initiator']
-        vol = self._get_latest_volume(volume['id'])
+        vol = self._get_latest_volume(volume['name_id'])
         iscsi_details = self._get_iscsi_service_details()
         iscsi_portal = self._get_iscsi_portal_for_vol(vol, iscsi_details)
         mapping = self._map_volume_to_host(vol, initiator_name)
@@ -648,7 +651,7 @@ class Driver(driver.ISCSIDriver):
 
     def terminate_connection(self, volume, connector, **kwargs):
         """Disallow connection from connector."""
-        vol = self._get_volume(volume['id'])
+        vol = self._get_volume(volume['name_id'])
         host = self._get_host_with_port(connector['initiator'])
         mapping = self._get_cached_vol_mapping_for_host(vol, host)
         self._client.delete_volume_mapping(mapping['lunMappingRef'])
@@ -702,7 +705,7 @@ class Driver(driver.ISCSIDriver):
     def extend_volume(self, volume, new_size):
         """Extend an existing volume to the new size."""
         stage_1, stage_2 = 0, 0
-        src_vol = self._get_volume(volume['id'])
+        src_vol = self._get_volume(volume['name_id'])
         src_label = src_vol['label']
         stage_label = 'tmp-%s' % utils.convert_uuid_to_es_fmt(uuid.uuid4())
         extend_vol = {'id': uuid.uuid4(), 'size': new_size}
