@@ -14,3 +14,5 @@ version of stable/icehouse:
 
 5. NetApp fix to set non default server port in api
     - https://bugs.launchpad.net/cinder/+bug/1322379
+
+6. NetApp E-Series live server migration with ephemeral host group

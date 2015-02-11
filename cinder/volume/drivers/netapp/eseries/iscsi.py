@@ -502,90 +502,119 @@ class Driver(driver.ISCSIDriver):
 
     def initialize_connection(self, volume, connector):
         """Allow connection to connector and return connection info."""
-        initiator_name = connector['initiator']
-        vol = self._get_latest_volume(volume['name_id'])
-        iscsi_details = self._get_iscsi_service_details()
-        iscsi_portal = self._get_iscsi_portal_for_vol(vol, iscsi_details)
-        mapping = self._map_volume_to_host(vol, initiator_name)
+        initiator = connector['initiator']
+        eseries_volume = self._get_latest_volume(volume['name_id'])
+        LOG.debug("*** Initialize connection to %s" % eseries_volume['label'])
+
+        iscsi_port = self._client.get_iscsi_port_for_volume(eseries_volume)
+        iqn = iscsi_port['iqn']
+        address = iscsi_port['ip']
+        port = iscsi_port['tcp_port']
+
+        mapping = self._map_volume_to_host(eseries_volume, initiator)
         lun_id = mapping['lun']
-        self._cache_vol_mapping(mapping)
+
         msg = _("Mapped volume %(id)s to the initiator %(initiator_name)s.")
-        msg_fmt = {'id': volume['id'], 'initiator_name': initiator_name}
+        msg_fmt = {'id': volume['id'], 'initiator_name': initiator}
         LOG.debug(msg % msg_fmt)
-        msg = _("Successfully fetched target details for volume %(id)s and "
-                "initiator %(initiator_name)s.")
-        LOG.debug(msg % msg_fmt)
-        address = iscsi_portal['ip']
-        port = iscsi_portal['tcp_port']
-        iqn = iscsi_portal['iqn']
-        return utils.get_iscsi_connection_properties(address, port, iqn,
-                                                     lun_id, volume)
 
-    def _get_iscsi_service_details(self):
-        """Gets iscsi iqn, ip and port information."""
-        ports = []
-        hw_inventory = self._client.list_hardware_inventory()
-        iscsi_ports = hw_inventory.get('iscsiPorts')
-        if iscsi_ports:
-            for port in iscsi_ports:
-                if (port.get('ipv4Enabled') and port.get('iqn') and
-                        port.get('ipv4Data') and
-                        port['ipv4Data'].get('ipv4AddressData') and
-                        port['ipv4Data']['ipv4AddressData']
-                        .get('ipv4Address') and port['ipv4Data']
-                        ['ipv4AddressData'].get('configState')
-                        == 'configured'):
-                    iscsi_det = {}
-                    iscsi_det['ip'] =\
-                        port['ipv4Data']['ipv4AddressData']['ipv4Address']
-                    iscsi_det['iqn'] = port['iqn']
-                    iscsi_det['tcp_port'] = port.get('tcpListenPort')
-                    iscsi_det['controller'] = port.get('controllerId')
-                    ports.append(iscsi_det)
-        if not ports:
-            msg = _('No good iscsi portals found for %s.')
-            raise exception.NetAppDriverException(
-                msg % self._client.get_system_id())
-        return ports
+        properties = {}
+        properties['target_discovered'] = False
+        properties['target_portal'] = '%s:%s' % (address, port)
+        properties['target_iqn'] = iqn
+        properties['target_lun'] = lun_id
+        properties['volume_id'] = volume['id']
+        auth = volume['provider_auth']
+        if auth:
+            (auth_method, auth_username, auth_secret) = auth.split()
+            properties['auth_method'] = auth_method
+            properties['auth_username'] = auth_username
+            properties['auth_password'] = auth_secret
 
-    def _get_iscsi_portal_for_vol(self, volume, portals, anyController=True):
-        """Get the iscsi portal info relevant to volume."""
-        for portal in portals:
-            if portal.get('controller') == volume.get('currentManager'):
-                return portal
-        if anyController and portals:
-            return portals[0]
-        msg = _('No good iscsi portal found in supplied list for %s.')
-        raise exception.NetAppDriverException(
-            msg % self._client.get_system_id())
+        return {
+            'driver_volume_type': 'iscsi',
+            'data': properties,
+        }
 
     @cinder_utils.synchronized('map_es_volume')
-    def _map_volume_to_host(self, vol, initiator):
+    def _map_volume_to_host(self, eseries_volume, initiator):
         """Maps the e-series volume to host with initiator."""
-        host = self._get_or_create_host(initiator, self.host_type)
-        vol_maps = self._get_host_mapping_for_vol_frm_array(vol)
-        for vol_map in vol_maps:
-            if vol_map.get('mapRef') == host['hostRef']:
-                return vol_map
-            else:
-                self._client.delete_volume_mapping(vol_map['lunMappingRef'])
-                self._del_vol_mapping_frm_cache(vol_map)
-        mappings = self._get_vol_mapping_for_host_frm_array(host['hostRef'])
-        lun = self._get_free_lun(host, mappings)
-        return self._client.create_volume_mapping(vol['volumeRef'],
-                                                  host['hostRef'], lun)
 
-    def _get_or_create_host(self, port_id, host_type):
-        """Fetch or create a host by given port."""
+        volume_ref = eseries_volume['volumeRef']
+        volume_label = eseries_volume['label']
+
+        host = self._get_or_create_host(initiator, self.host_type)
+        host_ref = host['hostRef']
+
+        # nothing to do if the connection is identical to what already exists
+        vol_maps = self._client.get_volume_mappings(volume_ref=volume_ref)
+        for vol_map in vol_maps:
+            if vol_map.get('mapRef') == host_ref:
+                return vol_map
+
+        # if volume is not mapped to any other hosts, create new host map
+        if not vol_maps:
+            lun_number = self._client.get_free_lun(host_ref)
+            return self._client.create_volume_mapping(volume_ref, host_ref,
+                                                      lun_number)
+
+        vol_map = vol_maps[0]
+        lun_id = int(vol_map['lun'])
+
+        # check if volume already mapped in a group
+        if vol_map['type'] == 'cluster':
+            msg = _('Volume %(volume)s is already mapped to a host group.')
+            args = {'volume': volume_label}
+            raise exception.NetAppDriverException(msg % args)
+
+        # check if host already in a host group
+        if host.get('clusterRef') != self._client.NULL_REF:
+            msg = _('Specified host %(host)s is already part of a host group.')
+            args = {'host': host.get('label')}
+            raise exception.NetAppDriverException(msg % args)
+
+        # check if currently mapped host is in a host group
+        preexisting_host_ref = vol_map['mapRef']
+        preexisting_host = self._client.get_host(preexisting_host_ref)
+        if preexisting_host.get('clusterRef') != self._client.NULL_REF:
+            msg = _('Currently mapped host %(host)s is already part'
+                    ' of a host group.')
+            args = {'host': preexisting_host.get('label')}
+            raise exception.NetAppDriverException(msg % args)
+
+        # check if LUN ID is already in use on the host
+        if not self._client.is_lun_free(host_ref, lun_id):
+            msg = _('LUN ID %(lun)s is already in use on host %(host)s.')
+            args = {'lun': lun_id, 'host': host.get('label')}
+            raise exception.NetAppDriverException(msg % args)
+
+        # volume mapped to a host, so now we have to make a group
+        host_group = self._client.create_host_group(
+            volume_label, [host_ref, preexisting_host_ref])
+        host_group_ref = host_group['clusterRef']
+
         try:
-            host = self._get_host_with_port(port_id)
-            ht_def = self._get_host_type_definition(host_type)
-            if host.get('hostTypeIndex') == ht_def.get('index'):
+            return self._client.move_volume_mapping_via_symbol(
+                map_ref=vol_map['lunMappingRef'], to_ref=host_group_ref,
+                lun_id=lun_id)
+        except exception.NetAppDriverException:
+            with excutils.save_and_reraise_exception():
+                # map failed, so revert everything
+                self._client.set_host_group_for_host(host_ref)
+                self._client.set_host_group_for_host(preexisting_host_ref)
+                self._client.delete_host_group(host_group_ref)
+
+    def _get_or_create_host(self, initiator, host_type_name):
+        """Fetch or create a host by given initiator."""
+        try:
+            host = self._get_host_with_initiator(initiator)
+            host_type = self._client.get_host_type(host_type_name)
+            if host.get('hostTypeIndex') == host_type.get('index'):
                 return host
             else:
                 try:
                     return self._client.update_host_type(
-                        host['hostRef'], ht_def)
+                        host['hostRef'], host_type)
                 except exception.NetAppDriverException as e:
                     msg = _("Unable to update host type for host with"
                             " label %(l)s. %(e)s")
@@ -593,9 +622,9 @@ class Driver(driver.ISCSIDriver):
                     return host
         except exception.NotFound as e:
             LOG.warn(_("Message - %s."), e.msg)
-            return self._create_host(port_id, host_type)
+            return self._create_host(initiator, host_type_name)
 
-    def _get_host_with_port(self, port_id):
+    def _get_host_with_initiator(self, initiator):
         """Gets or creates a host with given port id."""
         hosts = self._client.list_hosts()
         for host in hosts:
@@ -603,69 +632,73 @@ class Driver(driver.ISCSIDriver):
                 ports = host.get('hostSidePorts')
                 for port in ports:
                     if (port.get('type') == 'iscsi'
-                            and port.get('address') == port_id):
+                            and port.get('address') == initiator):
                         return host
         msg = _("Host with port %(port)s not found.")
-        raise exception.NotFound(msg % {'port': port_id})
+        raise exception.NotFound(msg % {'port': initiator})
 
-    def _create_host(self, port_id, host_type):
+    def _create_host(self, initiator, host_type_name):
         """Creates host on system with given initiator as port_id."""
-        LOG.info(_("Creating host with port %s."), port_id)
+        LOG.info(_("Creating host with port %s."), initiator)
         label = utils.convert_uuid_to_es_fmt(uuid.uuid4())
         port_label = utils.convert_uuid_to_es_fmt(uuid.uuid4())
-        host_type = self._get_host_type_definition(host_type)
-        return self._client.create_host_with_port(label, host_type,
-                                                  port_id, port_label)
-
-    def _get_host_type_definition(self, host_type):
-        """Gets supported host type if available on storage system."""
-        host_types = self._client.list_host_types()
-        for ht in host_types:
-            if ht.get('name', 'unknown').lower() == host_type.lower():
-                return ht
-        raise exception.NotFound(_("Host type %s not supported.") % host_type)
-
-    def _get_free_lun(self, host, maps=None):
-        """Gets free lun for given host."""
-        ref = host['hostRef']
-        luns = maps or self._get_vol_mapping_for_host_frm_array(ref)
-        used_luns = set(map(lambda lun: int(lun['lun']), luns))
-        for lun in xrange(self.MAX_LUNS_PER_HOST):
-            if lun not in used_luns:
-                return lun
-        msg = _("No free luns. Host might exceeded max luns.")
-        raise exception.NetAppDriverException(msg)
-
-    def _get_vol_mapping_for_host_frm_array(self, host_ref):
-        """Gets all volume mappings for given host from array."""
-        mappings = self._client.get_volume_mappings() or []
-        host_maps = filter(lambda x: x.get('mapRef') == host_ref, mappings)
-        return host_maps
-
-    def _get_host_mapping_for_vol_frm_array(self, volume):
-        """Gets all host mappings for given volume from array."""
-        mappings = self._client.get_volume_mappings() or []
-        host_maps = filter(lambda x: x.get('volumeRef') == volume['volumeRef'],
-                           mappings)
-        return host_maps
+        host_type_name = self._client.get_host_type(host_type_name)
+        return self._client.create_host_with_port(label, host_type_name,
+                                                  initiator, port_label)
 
     def terminate_connection(self, volume, connector, **kwargs):
-        """Disallow connection from connector."""
-        vol = self._get_volume(volume['name_id'])
-        host = self._get_host_with_port(connector['initiator'])
-        mapping = self._get_cached_vol_mapping_for_host(vol, host)
-        self._client.delete_volume_mapping(mapping['lunMappingRef'])
-        self._del_vol_mapping_frm_cache(mapping)
+        eseries_volume = self._get_volume(volume['name_id'])
+        LOG.debug("*** Terminate connection to %s" % eseries_volume['label'])
+        self._unmap_volume_from_host(eseries_volume, connector['initiator'])
 
-    def _get_cached_vol_mapping_for_host(self, volume, host):
-        """Gets cached volume mapping for given host."""
-        mappings = volume.get('listOfMappings') or []
-        for mapping in mappings:
-            if mapping.get('mapRef') == host['hostRef']:
-                return mapping
-        msg = _("Mapping not found for %(vol)s to host %(ht)s.")
-        raise exception.NotFound(msg % {'vol': volume['volumeRef'],
-                                        'ht': host['hostRef']})
+    def _unmap_volume_from_host(self, eseries_volume, initiator):
+        """Unmaps the e-series volume from host with initiator."""
+
+        volume_ref = eseries_volume['volumeRef']
+        volume_label = eseries_volume['label']
+
+        host = self._get_or_create_host(initiator, self.host_type)
+        host_ref = host['hostRef']
+
+        vol_maps = self._client.get_volume_mappings(volume_ref=volume_ref)
+
+        if not vol_maps:
+            msg = _('No existing maps found for volume %(volume)s.')
+            args = {'volume': volume_label}
+            LOG.info(msg % args)
+            return
+
+        # map exists, and there can be only one
+        if len(vol_maps) > 1:
+            msg = _('Multiple existing maps found.')
+            raise exception.NetAppDriverException(msg)
+
+        vol_map = vol_maps[0]
+
+        # volume not mapped to a host group, so just delete mapping
+        if not vol_map['type'] == 'cluster':
+            self._client.delete_volume_mapping(vol_map['lunMappingRef'])
+            return
+
+        # volume mapped to a host group
+        host_group_ref = vol_map['mapRef']
+
+        # remove host from group
+        self._client.set_host_group_for_host(host_ref)
+
+        # evacuate and delete host group if only one host remains in it
+        hosts_in_group = self._client.list_hosts_in_host_group(host_group_ref)
+        if len(hosts_in_group) == 1:
+            remaining_host_ref = hosts_in_group[0]['hostRef']
+            self._client.set_host_group_for_host(remaining_host_ref)
+            self._client.move_volume_mapping_via_symbol(
+                map_ref=vol_map['lunMappingRef'], to_ref=remaining_host_ref,
+                lun_id=vol_map['lun'])
+            self._client.delete_host_group(host_group_ref)
+
+        # else if host group is empty, just delete it and any associated maps
+        elif len(hosts_in_group) == 0:
+            self._client.delete_host_group(host_group_ref)
 
     def get_volume_stats(self, refresh=False):
         """Return the current state of the volume service."""
