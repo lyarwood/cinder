@@ -25,6 +25,7 @@ import six
 
 from cinder import exception
 from cinder import test
+from cinder.tests import fake_snapshot
 from cinder.tests.volume.drivers.netapp.eseries import fakes as \
     eseries_fakes
 from cinder.volume.drivers.netapp.eseries import client as es_client
@@ -71,22 +72,25 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_info(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'driveMediaType': 'ssd'}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
 
-        self.driver._objects["disk_pool_refs"] = ['test_vg1']
+        self.driver._get_storage_pools = mock.Mock(return_value=pools)
         self.driver._client.list_storage_pools = mock.Mock(return_value=[])
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
         self.driver._update_ssc_info()
 
-        self.assertEqual({'test_vg1': {'netapp_disk_type': 'SSD'}},
+        self.assertEqual({'test_vg1': {'netapp_disk_type': 'SSD',
+                          'netapp_disk_encryption': 'true'}},
                          self.driver._ssc_stats)
 
     def test_update_ssc_disk_types_ssd(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'driveMediaType': 'ssd'}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
-        ssc_stats = self.driver._update_ssc_disk_types(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_types(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'SSD'}},
                          ssc_stats)
@@ -94,9 +98,10 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_disk_types_scsi(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'interfaceType': {'driveType': 'scsi'}}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
-        ssc_stats = self.driver._update_ssc_disk_types(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_types(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'SCSI'}},
                          ssc_stats)
@@ -104,9 +109,10 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_disk_types_fcal(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'interfaceType': {'driveType': 'fibre'}}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
-        ssc_stats = self.driver._update_ssc_disk_types(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_types(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'FCAL'}},
                          ssc_stats)
@@ -114,9 +120,10 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_disk_types_sata(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'interfaceType': {'driveType': 'sata'}}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
-        ssc_stats = self.driver._update_ssc_disk_types(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_types(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'SATA'}},
                          ssc_stats)
@@ -124,9 +131,10 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_disk_types_sas(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'interfaceType': {'driveType': 'sas'}}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
-        ssc_stats = self.driver._update_ssc_disk_types(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_types(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'SAS'}},
                          ssc_stats)
@@ -134,9 +142,10 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_disk_types_unknown(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'interfaceType': {'driveType': 'unknown'}}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
-        ssc_stats = self.driver._update_ssc_disk_types(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_types(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'unknown'}},
                          ssc_stats)
@@ -144,54 +153,50 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_disk_types_undefined(self):
         drives = [{'currentVolumeGroupRef': 'test_vg1',
                    'interfaceType': {'driveType': '__UNDEFINED'}}]
+        pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
         self.driver._client.list_drives = mock.Mock(return_value=drives)
 
-        ssc_stats = self.driver._update_ssc_disk_types(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_types(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_type': 'unknown'}},
                          ssc_stats)
 
     def test_update_ssc_disk_encryption_SecType_enabled(self):
         pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'enabled'}]
-        self.driver._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.driver._update_ssc_disk_encryption(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_encryption(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'true'}},
                          ssc_stats)
 
     def test_update_ssc_disk_encryption_SecType_unknown(self):
         pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'unknown'}]
-        self.driver._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.driver._update_ssc_disk_encryption(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_encryption(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'}},
                          ssc_stats)
 
     def test_update_ssc_disk_encryption_SecType_none(self):
         pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'none'}]
-        self.driver._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.driver._update_ssc_disk_encryption(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_encryption(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'}},
                          ssc_stats)
 
     def test_update_ssc_disk_encryption_SecType_capable(self):
         pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'capable'}]
-        self.driver._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.driver._update_ssc_disk_encryption(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_encryption(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'}},
                          ssc_stats)
 
     def test_update_ssc_disk_encryption_SecType_garbage(self):
         pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'garbage'}]
-        self.driver._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.driver._update_ssc_disk_encryption(['test_vg1'])
+        ssc_stats = self.driver._update_ssc_disk_encryption(pools)
 
         self.assertRaises(TypeError, 'test_vg1',
                           {'netapp_disk_encryption': 'false'}, ssc_stats)
@@ -199,10 +204,8 @@ class NetAppEseriesISCSIDriverTestCase(test.TestCase):
     def test_update_ssc_disk_encryption_multiple(self):
         pools = [{'volumeGroupRef': 'test_vg1', 'securityType': 'none'},
                  {'volumeGroupRef': 'test_vg2', 'securityType': 'enabled'}]
-        self.driver._client.list_storage_pools = mock.Mock(return_value=pools)
 
-        ssc_stats = self.driver._update_ssc_disk_encryption(['test_vg1',
-                                                            'test_vg2'])
+        ssc_stats = self.driver._update_ssc_disk_encryption(pools)
 
         self.assertEqual({'test_vg1': {'netapp_disk_encryption': 'false'},
                           'test_vg2': {'netapp_disk_encryption': 'true'}},
@@ -376,6 +379,104 @@ class NetAppEseriesISCSIDriverMultiAttachTestCase(test.TestCase):
                           self.driver.create_volume,
                           get_fake_volume())
         self.assertFalse(self.driver._client.create_volume.call_count)
+
+    def test_create_volume_from_snapshot(self):
+        fake_eseries_volume = copy.deepcopy(eseries_fakes.VOLUME)
+        self.mock_object(self.driver, "_schedule_and_create_volume",
+                         mock.Mock(return_value=fake_eseries_volume))
+        self.mock_object(self.driver, "_create_snapshot_volume",
+                         mock.Mock(return_value=fake_eseries_volume))
+        self.mock_object(self.driver._client, "delete_snapshot_volume")
+
+        self.driver.create_volume_from_snapshot(
+            get_fake_volume(), fake_snapshot.fake_snapshot_obj(None))
+
+        self.assertEqual(
+            1, self.driver._schedule_and_create_volume.call_count)
+        self.assertEqual(1, self.driver._create_snapshot_volume.call_count)
+        self.assertEqual(
+            1, self.driver._client.delete_snapshot_volume.call_count)
+
+    def test_create_volume_from_snapshot_create_fails(self):
+        fake_dest_eseries_volume = copy.deepcopy(eseries_fakes.VOLUME)
+        self.mock_object(self.driver, "_schedule_and_create_volume",
+                         mock.Mock(return_value=fake_dest_eseries_volume))
+        self.mock_object(self.driver, "_create_snapshot_volume",
+                         mock.Mock(side_effect=exception.NetAppDriverException)
+                         )
+        self.mock_object(self.driver._client, "delete_snapshot_volume")
+        self.mock_object(self.driver._client, "delete_volume")
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.driver.create_volume_from_snapshot,
+                          get_fake_volume(),
+                          fake_snapshot.fake_snapshot_obj(None))
+
+        self.assertEqual(
+            1, self.driver._schedule_and_create_volume.call_count)
+        self.assertEqual(1, self.driver._create_snapshot_volume.call_count)
+        self.assertEqual(
+            0, self.driver._client.delete_snapshot_volume.call_count)
+        # Ensure the volume we were going to copy to is cleaned up
+        self.driver._client.delete_volume.assert_called_once_with(
+            fake_dest_eseries_volume['volumeRef'])
+
+    def test_create_volume_from_snapshot_copy_job_fails(self):
+        fake_dest_eseries_volume = copy.deepcopy(eseries_fakes.VOLUME)
+        self.mock_object(self.driver, "_schedule_and_create_volume",
+                         mock.Mock(return_value=fake_dest_eseries_volume))
+        self.mock_object(self.driver, "_create_snapshot_volume",
+                         mock.Mock(return_value=fake_dest_eseries_volume))
+        self.mock_object(self.driver._client, "delete_snapshot_volume")
+        self.mock_object(self.driver._client, "delete_volume")
+
+        fake_failed_volume_copy_job = copy.deepcopy(
+            eseries_fakes.VOLUME_COPY_JOB)
+        fake_failed_volume_copy_job['status'] = 'failed'
+        self.mock_object(self.driver._client,
+                         "create_volume_copy_job",
+                         mock.Mock(return_value=fake_failed_volume_copy_job))
+        self.mock_object(self.driver._client,
+                         "list_vol_copy_job",
+                         mock.Mock(return_value=fake_failed_volume_copy_job))
+
+        self.assertRaises(exception.NetAppDriverException,
+                          self.driver.create_volume_from_snapshot,
+                          get_fake_volume(),
+                          fake_snapshot.fake_snapshot_obj(None))
+
+        self.assertEqual(
+            1, self.driver._schedule_and_create_volume.call_count)
+        self.assertEqual(1, self.driver._create_snapshot_volume.call_count)
+        self.assertEqual(
+            1, self.driver._client.delete_snapshot_volume.call_count)
+        # Ensure the volume we were going to copy to is cleaned up
+        self.driver._client.delete_volume.assert_called_once_with(
+            fake_dest_eseries_volume['volumeRef'])
+
+    def test_create_volume_from_snapshot_fail_to_delete_snapshot_volume(self):
+        fake_dest_eseries_volume = copy.deepcopy(eseries_fakes.VOLUME)
+        fake_dest_eseries_volume['volumeRef'] = 'fake_volume_ref'
+        self.mock_object(self.driver, "_schedule_and_create_volume",
+                         mock.Mock(return_value=fake_dest_eseries_volume))
+        self.mock_object(self.driver, "_create_snapshot_volume",
+                         mock.Mock(return_value=copy.deepcopy(
+                             eseries_fakes.VOLUME)))
+        self.mock_object(self.driver._client, "delete_snapshot_volume",
+                         mock.Mock(side_effect=exception.NetAppDriverException)
+                         )
+        self.mock_object(self.driver._client, "delete_volume")
+
+        self.driver.create_volume_from_snapshot(
+            get_fake_volume(), fake_snapshot.fake_snapshot_obj(None))
+
+        self.assertEqual(
+            1, self.driver._schedule_and_create_volume.call_count)
+        self.assertEqual(1, self.driver._create_snapshot_volume.call_count)
+        self.assertEqual(
+            1, self.driver._client.delete_snapshot_volume.call_count)
+        # Ensure the volume we created is not cleaned up
+        self.assertEqual(0, self.driver._client.delete_volume.call_count)
 
     def test_initialize_connection_volume_not_mapped(self):
         """Map the volume directly to destination host.
