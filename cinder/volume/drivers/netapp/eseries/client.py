@@ -86,9 +86,6 @@ class WebserviceClient(object):
 class RestClient(WebserviceClient):
     """REST client specific to e-series storage service."""
 
-    MAX_LUNS_PER_HOST = 255
-    NULL_REF = '0000000000000000000000000000000000000000'
-
     def __init__(self, scheme, host, port, service_path, username,
                  password, **kwargs):
         super(RestClient, self).__init__(scheme, host, port, service_path,
@@ -186,17 +183,10 @@ class RestClient(WebserviceClient):
         data = {'name': label}
         return self._invoke('POST', path, data, **{'object-id': object_id})
 
-    def get_volume_mappings(self, volume_ref=None, host_ref=None):
-        """Gets volume mappings."""
+    def get_volume_mappings(self):
+        """Creates volume mapping on array."""
         path = "/storage-systems/{system-id}/volume-mappings"
-        mappings = self._invoke('GET', path) or []
-        if volume_ref:
-            mappings = [mapping for mapping in mappings
-                        if mapping.get('volumeRef') == volume_ref]
-        if host_ref:
-            mappings = [mapping for mapping in mappings
-                        if mapping.get('mapRef') == host_ref]
-        return mappings
+        return self._invoke('GET', path)
 
     def create_volume_mapping(self, object_id, target_id, lun):
         """Creates volume mapping on array."""
@@ -210,114 +200,10 @@ class RestClient(WebserviceClient):
         path = "/storage-systems/{system-id}/volume-mappings/{object-id}"
         return self._invoke('DELETE', path, **{'object-id': map_object_id})
 
-    def move_volume_mapping_via_symbol(self, map_ref, to_ref, lun_id=None):
-        """Moves a map from one host/host_group object to another."""
-
-        if lun_id is None:
-            lun_id = self.get_free_lun(to_ref)
-
-        path = "/storage-systems/{system-id}/symbol/moveLUNMapping"
-        data = {'lunMappingRef': map_ref,
-                'lun': int(lun_id),
-                'mapRef': to_ref}
-        return_code = self._invoke('POST', path, data)
-        if return_code == 'ok':
-            return {'lun': lun_id}
-        msg = _("Failed to move LUN mapping.  Return code: %s") % return_code
-        raise exception.NetAppDriverException(msg)
-
-    def get_free_lun(self, map_ref, maps=None):
-        """Gets free LUN for given host or host group."""
-        maps = maps or self.get_volume_mappings(host_ref=map_ref)
-        used_luns = set([int(map['lun']) for map in maps])
-
-        for lun in xrange(self.MAX_LUNS_PER_HOST):
-            if lun not in used_luns:
-                return lun
-        msg = _("No free LUNs. Host might have exceeded the max number of "
-                "available LUNS (%s)") % self.MAX_LUNS_PER_HOST
-        raise exception.NetAppDriverException(msg)
-
-    def is_lun_free(self, map_ref, lun_id):
-        """Check if a LUN ID is free on a given host or host group."""
-        maps = self.get_volume_mappings(host_ref=map_ref)
-        used_luns = set([int(map['lun']) for map in maps])
-        return int(lun_id) not in used_luns
-
     def list_hardware_inventory(self):
         """Lists objects in the hardware inventory."""
         path = "/storage-systems/{system-id}/hardware-inventory"
         return self._invoke('GET', path)
-
-    def create_host_group(self, label, host_list=None):
-        """Creates a host group on the array."""
-        path = "/storage-systems/{system-id}/host-groups"
-        data = {'name': label}
-        data.setdefault('hosts', host_list) if host_list else None
-        return self._invoke('POST', path, data)
-
-    def get_host_group(self, host_group_ref):
-        """Gets a single host group from the array."""
-        path = "/storage-systems/{system-id}/host-groups/{object-id}"
-        return self._invoke('GET', path, **{'object-id': host_group_ref})
-
-    def get_host_group_by_name(self, name):
-        """Gets a single host group by name from the array."""
-        host_groups = self.list_host_groups()
-        return [host_group for host_group in host_groups
-                if host_group['label'] == name][0]
-
-    def list_host_groups(self):
-        """Lists host groups on the array."""
-        path = "/storage-systems/{system-id}/host-groups"
-        return self._invoke('GET', path)
-
-    def update_host_group(self, host_group_ref, label, host_list=None):
-        """Updates a host group on the array."""
-        path = "/storage-systems/{system-id}/host-groups/{object-id}"
-        data = {'name': label}
-        data.setdefault('hosts', host_list) if host_list else None
-        return self._invoke('POST', path, data,
-                            **{'object-id': host_group_ref})
-
-    def delete_host_group(self, host_group_ref):
-        """Deletes a host group from the array."""
-        path = "/storage-systems/{system-id}/host-groups/{object-id}"
-        return self._invoke('DELETE', path, **{'object-id': host_group_ref})
-
-    def is_host_in_host_group(self, host_ref, host_group_ref):
-        """Checks whether a host is in a specific host group."""
-        host = self.get_host(host_ref)
-        if not host:
-            return False
-        return host_group_ref == host.get('clusterRef')
-
-    def is_host_in_any_host_group(self, host_ref):
-        """Checks whether a host is in any host group."""
-        host = self.get_host(host_ref)
-        return host.get('clusterRef') != self.NULL_REF
-
-    def list_hosts_in_host_group(self, host_group_ref):
-        """Lists hosts that are in a specific host group."""
-        hosts = self.list_hosts()
-        return [host for host in hosts
-                if host.get('clusterRef') == host_group_ref]
-
-    def set_host_group_for_host(self, host_ref, host_group_ref=NULL_REF):
-        """Sets or clears which host group a host is in."""
-        path = "/storage-systems/{system-id}/hosts/{object-id}"
-        data = {'groupId': host_group_ref}
-        return self._invoke('POST', path, data, **{'object-id': host_ref})
-
-    def get_host(self, host_ref):
-        """Gets a single host from the array."""
-        path = "/storage-systems/{system-id}/hosts/{object-id}"
-        return self._invoke('GET', path, **{'object-id': host_ref})
-
-    def get_host_by_name(self, name):
-        """Gets a single host by name from the array."""
-        hosts = self.list_hosts()
-        return [host for host in hosts if host['label'] == name][0]
 
     def list_hosts(self):
         """Lists host objects in the system."""
@@ -348,13 +234,6 @@ class RestClient(WebserviceClient):
         """Lists host types in storage system."""
         path = "/storage-systems/{system-id}/host-types"
         return self._invoke('GET', path)
-
-    def get_host_type(self, name):
-        """Gets supported host type if available on storage system."""
-        for host_type in self.list_host_types():
-            if host_type.get('name', 'unknown').lower() == name.lower():
-                return host_type
-        raise exception.NotFound(_("Host type %s not supported.") % name)
 
     def list_snapshot_groups(self):
         """Lists snapshot groups."""
@@ -468,41 +347,3 @@ class RestClient(WebserviceClient):
         """Delete volume copy job."""
         path = "/storage-systems/{system-id}/volume-copy-jobs/{object-id}"
         return self._invoke('DELETE', path, **{'object-id': object_id})
-
-    def get_iscsi_ports(self):
-        """Gets iSCSI iqn, ip and port information."""
-        ports = []
-        hw_inventory = self.list_hardware_inventory()
-        iscsi_ports = hw_inventory.get('iscsiPorts')
-        if iscsi_ports:
-            for port in iscsi_ports:
-                if (port.get('ipv4Enabled') and port.get('iqn') and
-                        port.get('ipv4Data') and
-                        port['ipv4Data'].get('ipv4AddressData') and
-                        port['ipv4Data']['ipv4AddressData']
-                        .get('ipv4Address') and port['ipv4Data']
-                        ['ipv4AddressData'].get('configState')
-                        == 'configured'):
-                    iscsi_details = {}
-                    iscsi_details['ip'] =\
-                        port['ipv4Data']['ipv4AddressData']['ipv4Address']
-                    iscsi_details['iqn'] = port['iqn']
-                    iscsi_details['tcp_port'] = port.get('tcpListenPort')
-                    iscsi_details['controller'] = port.get('controllerId')
-                    ports.append(iscsi_details)
-        if not ports:
-            msg = _('No suitably configured iSCSI ports found for %s.')
-            raise exception.NetAppDriverException(msg % self.get_system_id())
-        return ports
-
-    def get_iscsi_port_for_volume(self, eseries_volume, any_controller=True):
-        """Get the iSCSI port info relevant to volume."""
-
-        ports = self.get_iscsi_ports()
-        for port in ports:
-            if port.get('controller') == eseries_volume.get('currentManager'):
-                return port
-        if any_controller and ports:
-            return ports[0]
-        msg = _('No matching iSCSI port found in supplied list for %s.')
-        raise exception.NetAppDriverException(msg % self.get_system_id())
