@@ -48,18 +48,6 @@ class NetAppEseriesHostMapperTestCase(test.TestCase):
 
         self.client = eseries_fakes.FakeEseriesClient()
 
-    def test_get_host_mapping_for_vol_frm_array(self):
-        volume_mapping_1 = copy.deepcopy(eseries_fakes.VOLUME_MAPPING)
-        volume_mapping_2 = copy.deepcopy(eseries_fakes.VOLUME_MAPPING)
-        volume_mapping_2['volumeRef'] = '2'
-        self.mock_object(self.client, 'get_volume_mappings',
-                         mock.Mock(return_value=[volume_mapping_1,
-                                                 volume_mapping_2]))
-        mappings = host_mapper.get_host_mapping_for_vol_frm_array(
-            self.client, eseries_fakes.VOLUME)
-
-        self.assertEqual([volume_mapping_1], mappings)
-
     def test_unmap_volume_from_host_volume_mapped_to_host(self):
         fake_eseries_volume = copy.deepcopy(eseries_fakes.VOLUME)
         fake_eseries_volume['listOfMappings'] = [
