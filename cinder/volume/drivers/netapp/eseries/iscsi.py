@@ -630,6 +630,9 @@ class Driver(driver.ISCSIDriver):
         ref = host['hostRef']
         luns = maps or self._get_vol_mapping_for_host_frm_array(ref)
         used_luns = set(map(lambda lun: int(lun['lun']), luns))
+        # E-Series uses LUN ID 0 for special purposes and should not be
+        # assigned for general use
+        used_luns.add(0)
         for lun in xrange(self.MAX_LUNS_PER_HOST):
             if lun not in used_luns:
                 return lun

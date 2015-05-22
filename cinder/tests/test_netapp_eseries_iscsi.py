@@ -16,6 +16,7 @@
 Tests for NetApp e-series iscsi volume driver.
 """
 
+import copy
 import json
 import mock
 import re
@@ -27,6 +28,7 @@ from cinder.openstack.common import log as logging
 from cinder import test
 from cinder.volume import configuration as conf
 from cinder.volume.drivers.netapp import common
+from cinder.volume.drivers.netapp.eseries import iscsi
 from cinder.volume.drivers.netapp.options import netapp_basicauth_opts
 from cinder.volume.drivers.netapp.options import netapp_eseries_opts
 
@@ -624,6 +626,25 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
                           'display_description': 'lun1',
                           'volume_type_id': None}
     connector = {'initiator': 'iqn.1998-01.com.vmware:localhost-28a58148'}
+    INITIATOR_NAME = 'iqn.1998-01.com.vmware:localhost-28a58148'
+    HOST = {
+        'isSAControlled': False,
+        'confirmLUNMappingCreation': False,
+        'label': 'stlrx300s7-55',
+        'isLargeBlockFormatHost': False,
+        'clusterRef': '8500000060080E500023C7340036035F515B78FC',
+        'protectionInformationCapableAccessMethod': False,
+        'ports': [],
+        'hostRef': '8400000060080E500023C73400300381515BFBA3',
+        'hostTypeIndex': 6,
+        'hostSidePorts': [
+            {
+                'label': 'NewStore',
+                'type': 'iscsi',
+                'address': INITIATOR_NAME
+            }
+        ]
+    }
 
     def setUp(self):
         super(NetAppEseriesIscsiDriverTestCase, self).setUp()
@@ -946,3 +967,29 @@ class NetAppEseriesIscsiDriverTestCase(test.TestCase):
         scheme = url.scheme
         self.assertEqual(446, port)
         self.assertEqual('https', scheme)
+
+    def test_get_free_lun(self):
+        configuration = self._set_config(create_configuration())
+        driver = iscsi.Driver(configuration=configuration)
+        fake_host = copy.deepcopy(self.HOST)
+
+        self.mock_object(iscsi.Driver, '_get_vol_mapping_for_host_frm_array',
+                         mock.Mock(return_value=[]))
+
+        lun = iscsi.Driver._get_free_lun(driver, fake_host)
+
+        self.assertEqual(1, lun)
+
+    def test_get_free_lun_host_full(self):
+        configuration = self._set_config(create_configuration())
+        driver = iscsi.Driver(configuration=configuration)
+        fake_host = copy.deepcopy(self.HOST)
+
+        self.mock_object(iscsi.Driver, '_get_vol_mapping_for_host_frm_array',
+                         mock.Mock(return_value=map(lambda n: {u'lun': n},
+                                                    range(1, 256))))
+
+        self.assertRaises(
+            exception.NetAppDriverException,
+            iscsi.Driver._get_free_lun,
+            driver, fake_host)
