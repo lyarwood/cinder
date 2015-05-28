@@ -1,19 +1,17 @@
-The Choose Your Own Adventure README for Cinder
-===============================================
+Installer notes
+---------------
 
-You have come across a storage service for an open cloud computing service.
-It has identified itself as "Cinder."   It was abstracted from the Nova project.
+This branch (https://github.com/NetApp/cinder/tree/stable/juno-cdot-fc-support)
+contains a backport of the Cinder FibreChannel driver for NetApp Clustered Data
+ONTAP (cDOT) from the OpenStack 'Kilo' release that has been tested with
+OpenStack 'Juno'. All other NetApp drivers for Cinder have been removed from or
+disabled in this branch.
 
-To monitor it from a distance: follow `@openstack <http://twitter.com/openstack>`_ on twitter.
+To use this NetApp cDOT FibreChannel driver with OpenStack 'Juno', install Juno
+as usual, replace the NetApp driver directory (cinder/volume/drivers/netapp)
+with the contents from this branch on each host where the Cinder volume service
+is enabled, and restart the Cinder volume service.
 
-To tame it for use in your own cloud: read http://docs.openstack.org
-
-To study its anatomy: read http://cinder.openstack.org
-
-To dissect it in detail: visit http://github.com/openstack/cinder
-
-To taunt it with its weaknesses: use http://bugs.launchpad.net/cinder
-
-To watch it: http://jenkins.openstack.org
-
-To hack at it: read `HACKING.rst <https://github.com/openstack/cinder/blob/master/HACKING.rst>`_
+Instructions for configuring the NetApp cDOT FibreChannel driver may be found
+in NetApp's `Kilo OpenStack Deployment and Operations Guide
+<http://netapp.github.io/openstack-deploy-ops-guide/kilo>`_.
