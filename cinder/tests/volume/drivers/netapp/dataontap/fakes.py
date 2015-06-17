@@ -24,7 +24,7 @@ HOST_NAME = 'fake.host.name'
 BACKEND_NAME = 'fake_backend_name'
 POOL_NAME = 'aggr1'
 EXPORT_PATH = '/fake/export/path'
-NFS_SHARE = '192.168.99.24:%s' % EXPORT_PATH
+NFS_SHARE = '%s:%s' % (HOST_NAME, EXPORT_PATH)
 HOST_STRING = '%s@%s#%s' % (HOST_NAME, BACKEND_NAME, POOL_NAME)
 NFS_HOST_STRING = '%s@%s#%s' % (HOST_NAME, BACKEND_NAME, NFS_SHARE)
 FLEXVOL = 'openstack-flexvol'
@@ -51,6 +51,9 @@ NFS_VOLUME = {
 }
 
 NETAPP_VOLUME = 'fake_netapp_volume'
+
+LUN = 'ee6b4cc7-477b-4016-aa0c-7127b4e3af86'
+SIZE = '1024'
 
 UUID1 = '12345678-1234-5678-1234-567812345678'
 LUN_PATH = '/vol/vol0/%s' % LUN_NAME
@@ -150,8 +153,12 @@ ISCSI_TARGET_DETAILS_LIST = [
 
 IPV4_ADDRESS = '192.168.14.2'
 IPV6_ADDRESS = 'fe80::6e40:8ff:fe8a:130'
+SHARE_IP = '192.168.99.24'
+EXPORT_PATH = '/fake/export/path'
+NFS_SHARE = HOST_NAME + ':' + EXPORT_PATH
 NFS_SHARE_IPV4 = IPV4_ADDRESS + ':' + EXPORT_PATH
 NFS_SHARE_IPV6 = IPV6_ADDRESS + ':' + EXPORT_PATH
+FLEXVOL = 'openstack-flexvol'
 
 RESERVED_PERCENTAGE = 7
 TOTAL_BYTES = 4797892092432
@@ -206,3 +213,4 @@ SNAPSHOT = {
 }
 
 VOLUME_REF = {'name': 'fake_vref_name', 'size': 42}
+FILE_LIST = ['file1', 'file2', 'file3']
